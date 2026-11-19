@@ -3,7 +3,7 @@ SCALE ?= 1
 PSQL = docker compose exec -T postgres psql -U postgres -v ON_ERROR_STOP=1
 
 .DEFAULT_GOAL := help
-.PHONY: help up build down db-drop db-create db-reset migrate seed shell
+.PHONY: help up build down db-drop db-create db-reset migrate seed shell psql
 
 help: ## Show available commands
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -19,6 +19,9 @@ down: ## Stop and remove the container
 
 shell: ## Open a shell in the postgres container
 	docker compose exec postgres sh
+
+psql: ## Open an interactive psql console on the database
+	docker compose exec postgres psql -U postgres -d $(DB)
 
 db-drop: ## Drop the database
 	$(PSQL) -d postgres -c 'DROP DATABASE IF EXISTS $(DB) WITH (FORCE)'
