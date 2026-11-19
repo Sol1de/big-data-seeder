@@ -26,10 +26,14 @@ FROM signups;
 
 INSERT INTO addresses (id, user_id, name, address, city, state, postal_code, country_code, created_at, updated_at)
 SELECT md5('seed:address:' || n || ':' || a)::uuid, u.id,
-       (ARRAY['Domicile', 'Travail', 'Autre'])[a], n || ' rue des Exemples, adresse ' || a,
-       (ARRAY['Paris', 'Lyon', 'Nantes'])[a], CASE WHEN a = 2 THEN 'Auvergne-Rhône-Alpes' END,
-       (ARRAY['75001', '69001', '44000'])[a], 'FR',
+       (ARRAY['Domicile', 'Travail', 'Autre'])[a],
+       n || (ARRAY[' rue des Exemples', ' Beispielstraße', ' calle de los Ejemplos'])[c] || ', adresse ' || a,
+       (ARRAY[['Paris', 'Lyon', 'Nantes'], ['Berlin', 'München', 'Hamburg'], ['Madrid', 'Barcelona', 'Sevilla']])[c][a],
+       CASE WHEN a = 2 THEN (ARRAY['Auvergne-Rhône-Alpes', 'Bayern', 'Cataluña'])[c] END,
+       (ARRAY[['75001', '69001', '44000'], ['10115', '80331', '20095'], ['28001', '08001', '41001']])[c][a],
+       (ARRAY['FR', 'DE', 'ES'])[c],
        u.created_at + interval '1 hour' * a, u.created_at + interval '1 hour' * a
 FROM seed_config CROSS JOIN LATERAL generate_series(1, n_users) AS g(n)
 JOIN users u ON u.id = md5('seed:user:' || n)::uuid
+CROSS JOIN LATERAL (VALUES (1 + n / 3 % 3)) AS country(c) -- one country per user, decorrelated from address count, orders copy it from the address
 CROSS JOIN LATERAL generate_series(1, 1 + (n - 1) % 3) AS slots(a);

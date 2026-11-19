@@ -39,7 +39,8 @@ WITH samples AS (
            CASE WHEN NOT guest THEN phone END,
            CASE WHEN guest THEN 'Invité' ELSE first_name END,
            CASE WHEN guest THEN 'Test ' || o.n ELSE last_name END,
-           CASE WHEN guest THEN o.n || ' rue des Invités' ELSE address END,
+           CASE WHEN NOT guest THEN address WHEN country_code = 'DE' THEN o.n || ' Gästestraße'
+                WHEN country_code = 'ES' THEN o.n || ' calle de los Invitados' ELSE o.n || ' rue des Invités' END,
            city, state, postal_code, country_code, ordered_at, least(as_of, ordered_at + interval '1 day')
     FROM checkouts o LEFT JOIN ranked r ON r.n = o.n AND (r.max_uses IS NULL OR r.promotion_use <= r.max_uses)
     RETURNING id, promo_code_id, created_at
