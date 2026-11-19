@@ -1,10 +1,11 @@
 WITH samples AS (
-    SELECT n, as_of, n_products, 1 + (n - 1) % n_users AS customer,
-           n % 10 = 0 AS guest,
-           CASE WHEN 1 + (n - 1) % n_users <= n_campaigns AND n % 10 <> 0
-                   THEN md5('seed:promo_code:' || (1 + (n - 1) % n_users) || ':2')::uuid
-                WHEN n % 7 < 3 THEN md5('seed:promo_code:' || (1 + (n - 1) % n_campaigns) || ':1')::uuid END AS candidate
+    SELECT n, as_of, n_products, customer, guest, campaign, md5('seed:order:' || n)::uuid AS order_id,
+           md5('seed:promo_code:' || campaign || ':' || slot)::uuid AS candidate
     FROM seed_config CROSS JOIN LATERAL generate_series(1, n_orders) AS g(n)
+    CROSS JOIN LATERAL (VALUES (1 + (n - 1) % n_users, n % 10 = 0)) AS who(customer, guest)
+    CROSS JOIN LATERAL (VALUES (CASE WHEN customer <= n_campaigns AND NOT guest THEN customer
+                                     WHEN n % 7 < 3 THEN 1 + (n - 1) % n_campaigns END,
+                                CASE WHEN customer <= n_campaigns AND NOT guest THEN 2 ELSE 1 END)) AS code(campaign, slot)
 ), checkouts AS MATERIALIZED (
     SELECT s.*, u.id AS customer_id, u.email, u.phone, u.first_name, u.last_name,
            a.address, a.city, a.state, a.postal_code, a.country_code,
@@ -29,7 +30,7 @@ WITH samples AS (
 ), new_orders AS (
     INSERT INTO orders (id, public_id, user_id, promo_code_id, status, email, phone, first_name, last_name,
                         address, city, state, postal_code, country_code, created_at, updated_at)
-    SELECT md5('seed:order:' || o.n)::uuid, 'SEED-ORDER-' || o.n, CASE WHEN NOT guest THEN customer_id END, r.code_id,
+    SELECT order_id, 'SEED-ORDER-' || o.n, CASE WHEN NOT guest THEN customer_id END, r.code_id,
            (CASE WHEN ordered_at > as_of - interval '1 day' THEN 'pending'
                  WHEN o.n % 19 = 0 THEN 'cancelled'
                  WHEN ordered_at > as_of - interval '3 days' THEN 'paid'
@@ -41,21 +42,19 @@ WITH samples AS (
            CASE WHEN guest THEN o.n || ' rue des Invités' ELSE address END,
            city, state, postal_code, country_code, ordered_at, least(as_of, ordered_at + interval '1 day')
     FROM checkouts o LEFT JOIN ranked r ON r.n = o.n AND (r.max_uses IS NULL OR r.promotion_use <= r.max_uses)
-    RETURNING id, public_id, promo_code_id, created_at
+    RETURNING id, promo_code_id, created_at
 ), price_bands AS (
     SELECT product_variant_id, price, currency, valid_from,
            lead(valid_from, 1, TIMESTAMP 'infinity') OVER (PARTITION BY product_variant_id ORDER BY valid_from) AS valid_until
-    FROM product_prices p JOIN product_variants v ON v.id = p.product_variant_id
-    WHERE v.reference LIKE 'SEED-%'
+    FROM product_prices
 ), lines AS (
     SELECT o.id, o.created_at, pc.promotion_id, v, n,
            md5('seed:variant:' || product || ':' || (1 + (n + v) % 4))::uuid AS variant_id
-    FROM new_orders o CROSS JOIN seed_config
-    CROSS JOIN LATERAL (VALUES (substring(o.public_id FROM 12)::bigint)) AS number(n)
+    FROM new_orders o JOIN checkouts c ON c.order_id = o.id
     LEFT JOIN promo_codes pc ON pc.id = o.promo_code_id
     CROSS JOIN generate_series(1, 3) AS slots(v)
     CROSS JOIN LATERAL (VALUES (1 + CASE WHEN v = 1 AND pc.id IS NOT NULL
-         THEN (split_part(pc.code, '-', 3)::bigint - 1) % n_products
+         THEN (campaign - 1) % n_products
          ELSE (n * 43 + v * 31) % n_products END)) AS selection(product)
 ), qualifying_products AS (
     SELECT promotion_id, product_id FROM promotion_products

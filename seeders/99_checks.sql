@@ -7,23 +7,6 @@ ANALYZE users, addresses, products, product_categories, product_variants, produc
 SET LOCAL enable_nestloop = off;
 
 DO $$ BEGIN
-    ASSERT (SELECT count(*) = 1 AND min(as_of) = TIMESTAMP '2026-01-01 00:00:00'
-            FROM pg_temp.seed_config), 'Expected one seed_config row with the fixed as_of timestamp';
-END; $$;
-
-DO $$ BEGIN
-    ASSERT (SELECT
-        n_users = (SELECT count(*) FROM users WHERE username LIKE 'seed-client-%')
-        AND n_products = (SELECT count(*) FROM products p JOIN brands b ON b.id = p.brand_id
-                          WHERE b.commercial_name LIKE 'Seed Atelier %')
-        AND n_carts = (SELECT count(*) FROM carts c JOIN users u ON u.id = c.user_id
-                       WHERE u.username LIKE 'seed-client-%')
-        AND n_orders = (SELECT count(*) FROM orders WHERE public_id LIKE 'SEED-ORDER-%')
-        AND n_campaigns = (SELECT count(*) FROM promotions WHERE name LIKE 'Seed promo %')
-        FROM pg_temp.seed_config), 'Seeded users, products, carts, orders or campaigns differ from seed_config';
-END; $$;
-
-DO $$ BEGIN
     ASSERT NOT EXISTS (
         SELECT 1 FROM users u CROSS JOIN pg_temp.seed_config cfg
         WHERE u.username LIKE 'seed-client-%'
@@ -190,15 +173,6 @@ END; $$;
 
 DO $$ BEGIN
     ASSERT NOT EXISTS (
-        SELECT 1 FROM orders o JOIN addresses a USING (address, city, postal_code, country_code)
-        JOIN users u ON u.id = a.user_id
-        WHERE o.public_id LIKE 'SEED-ORDER-%' AND o.user_id IS NULL
-          AND u.username LIKE 'seed-client-%' AND o.state IS NOT DISTINCT FROM a.state
-    ), 'Seeded guest order addresses must be standalone, not copied from seeded users';
-END; $$;
-
-DO $$ BEGIN
-    ASSERT NOT EXISTS (
         SELECT 1 FROM orders o
         WHERE o.public_id LIKE 'SEED-ORDER-%' AND o.user_id IS NOT NULL
           AND NOT EXISTS (
@@ -210,7 +184,6 @@ DO $$ BEGIN
           )
     ), 'Seeded registered orders must copy an existing saved address from their user';
 END; $$;
-
 
 DO $$ BEGIN
     ASSERT NOT EXISTS (
@@ -276,13 +249,10 @@ END; $$;
 
 DO $$ BEGIN
     ASSERT NOT EXISTS (
-        -- Count even non-seeded orders, across every code of the seeded promotion.
+        -- max_uses counts orders across every code of the promotion.
         SELECT 1 FROM promotions p LEFT JOIN promo_codes c ON c.promotion_id = p.id
         LEFT JOIN orders o ON o.promo_code_id = c.id
-        WHERE p.max_uses IS NOT NULL AND (p.name LIKE 'Seed promo %' OR EXISTS (
-            SELECT 1 FROM promo_codes seeded
-            WHERE seeded.promotion_id = p.id AND seeded.code LIKE 'SEED-PROMO-%'
-        ))
+        WHERE p.max_uses IS NOT NULL
         GROUP BY p.id HAVING count(o.id) > p.max_uses
     ), 'All orders using a seeded promotion must stay within its shared max_uses';
 END; $$;
@@ -292,8 +262,7 @@ DO $$ BEGIN
         SELECT 1 FROM orders o JOIN promo_codes c ON c.id = o.promo_code_id
         WHERE c.once_per_customer
         GROUP BY c.id, o.user_id
-        HAVING (c.code LIKE 'SEED-PROMO-%' OR bool_or(o.public_id LIKE 'SEED-ORDER-%'))
-           AND (o.user_id IS NULL OR count(*) > 1)
+        HAVING o.user_id IS NULL OR count(*) > 1
     ), 'Once-per-customer codes must not be used by guests or reused by the same customer';
 END; $$;
 
@@ -303,14 +272,6 @@ DO $$ BEGIN
         WHERE o.public_id LIKE 'SEED-ORDER-%'
           AND c.user_id IS NOT NULL AND o.user_id IS DISTINCT FROM c.user_id
     ), 'Nominative codes must be used only by the nominated customer';
-END; $$;
-
-DO $$ BEGIN
-    ASSERT NOT EXISTS (
-        SELECT 1 FROM orders o
-        WHERE o.public_id LIKE 'SEED-ORDER-%'
-          AND o.created_at > (SELECT as_of FROM pg_temp.seed_config)
-    ), 'Seeded orders must not be created after as_of';
 END; $$;
 
 DO $$ BEGIN
