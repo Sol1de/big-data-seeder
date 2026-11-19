@@ -9,6 +9,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql
       - ./migrations:/docker-entrypoint-initdb.d:ro
+      - ./scripts:/scripts:ro
 
 volumes:
   pgdata:
