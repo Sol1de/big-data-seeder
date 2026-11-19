@@ -7,6 +7,6 @@ JOIN orders o ON o.id = i.order_id
 JOIN product_variants v ON v.id = i.product_variant_id
 JOIN products p ON p.id = v.product_id
 JOIN brands b ON b.id = p.brand_id
-WHERE o.status = 'paid'
+WHERE o.status IN ('paid', 'shipped', 'delivered')
 GROUP BY b.id, b.name
 ORDER BY chiffre_affaires DESC;

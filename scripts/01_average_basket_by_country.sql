@@ -4,7 +4,7 @@ WITH paid_orders AS (
          SUM(i.quantity * i.unit_price * (1 - i.discount_percent / 100)) AS order_total
   FROM orders o
   JOIN order_items i ON i.order_id = o.id
-  WHERE o.status = 'paid'
+  WHERE o.status IN ('paid', 'shipped', 'delivered')
   GROUP BY o.id, o.country_code
 )
 SELECT country_code,

@@ -14,6 +14,6 @@ WHERE EXISTS (
         FROM order_items i
         JOIN orders o ON o.id = i.order_id
         WHERE i.product_variant_id = v.id
-          AND o.status = 'paid'
+          AND o.status IN ('paid', 'shipped', 'delivered')
       )
 ORDER BY p.name, v.reference;
