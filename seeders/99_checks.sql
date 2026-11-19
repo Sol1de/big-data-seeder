@@ -195,6 +195,15 @@ END; $$;
 
 DO $$ BEGIN
     ASSERT NOT EXISTS (
+        SELECT 1 FROM order_items i JOIN orders o ON o.id = i.order_id
+        JOIN product_variants v ON v.id = i.product_variant_id
+        WHERE o.public_id LIKE 'SEED-ORDER-%'
+        GROUP BY o.id, v.product_id HAVING count(*) > 1
+    ), 'Every seeded order must contain three distinct products';
+END; $$;
+
+DO $$ BEGIN
+    ASSERT NOT EXISTS (
         WITH price_bands AS (
             SELECT p.id, p.product_variant_id, p.price, p.currency, p.valid_from,
                    lead(p.valid_from, 1, TIMESTAMP 'infinity') OVER (

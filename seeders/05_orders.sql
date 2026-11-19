@@ -48,15 +48,32 @@ WITH samples AS (
     SELECT product_variant_id, price, currency, valid_from,
            lead(valid_from, 1, TIMESTAMP 'infinity') OVER (PARTITION BY product_variant_id ORDER BY valid_from) AS valid_until
     FROM product_prices
-), lines AS (
-    SELECT o.id, o.created_at, pc.promotion_id, v, n,
-           md5('seed:variant:' || product || ':' || (1 + (n + v) % 4))::uuid AS variant_id
+), picks AS (
+    -- Three distinct products per order, drawn with a power-law bias so a few
+    -- products are popular and pairs of them repeat across orders.
+    SELECT o.id, o.created_at, pc.promotion_id, n, p1, p2, p3
     FROM new_orders o JOIN checkouts c ON c.order_id = o.id
     LEFT JOIN promo_codes pc ON pc.id = o.promo_code_id
-    CROSS JOIN generate_series(1, 3) AS slots(v)
-    CROSS JOIN LATERAL (VALUES (1 + CASE WHEN v = 1 AND pc.id IS NOT NULL
-         THEN (campaign - 1) % n_products
-         ELSE (n * 43 + v * 31) % n_products END)) AS selection(product)
+    CROSS JOIN LATERAL (
+        SELECT 1 + CASE WHEN pc.id IS NOT NULL THEN (campaign - 1) % n_products
+                        ELSE floor(n_products * power(random(), 2))::int END AS p1
+    ) a
+    CROSS JOIN LATERAL (
+        SELECT 1 + floor((n_products - 1) * power(random(), 2))::int AS r2
+    ) b
+    CROSS JOIN LATERAL (SELECT r2 + (r2 >= p1)::int AS p2) c2
+    CROSS JOIN LATERAL (
+        SELECT 1 + floor((n_products - 2) * power(random(), 2))::int AS r3
+    ) d
+    CROSS JOIN LATERAL (
+        SELECT r3 + (r3 >= least(p1, p2))::int
+                  + (r3 >= greatest(p1, p2) - 1)::int AS p3
+    ) e
+), lines AS (
+    SELECT o.id, o.created_at, o.promotion_id, v, o.n,
+           md5('seed:variant:' || product || ':' || (1 + (o.n + v) % 4))::uuid AS variant_id
+    FROM picks o
+    CROSS JOIN LATERAL (VALUES (1, p1), (2, p2), (3, p3)) AS s(v, product)
 ), qualifying_products AS (
     SELECT promotion_id, product_id FROM promotion_products
     UNION
@@ -65,7 +82,7 @@ WITH samples AS (
 )
 INSERT INTO order_items (id, order_id, product_variant_id, quantity, unit_price, currency, discount_percent)
 SELECT md5('seed:order_item:' || l.n || ':' || l.v)::uuid, l.id, l.variant_id,
-       (1 + (l.n + l.v) % 3)::int, price.price, price.currency,
+       (1 + floor(power(random(), 3) * 4))::int, price.price, price.currency,
        CASE WHEN p.scope = 'order' OR q.product_id IS NOT NULL THEN p.percent ELSE 0 END
 FROM lines l
 JOIN product_variants v ON v.id = l.variant_id
