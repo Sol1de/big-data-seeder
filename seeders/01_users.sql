@@ -1,7 +1,7 @@
 SELECT setseed(0.42);
 
 CREATE TEMP TABLE seed_config ON COMMIT DROP AS
-SELECT TIMESTAMP '2026-01-01 00:00:00' AS as_of,
+SELECT now()::timestamp AS as_of,
        ceil(50000 * scale)::bigint AS n_users,
        ceil(5000 * scale)::bigint AS n_products,
        ceil(30000 * scale)::bigint AS n_carts,
